@@ -131,16 +131,19 @@ func TestMachineCanAccess(t *testing.T) {
 }
 
 func TestServiceCanAccess(t *testing.T) {
-	s := NewService("example.com", "serviceA")
-	a1 := knox.Access{ID: "spiffe://example.com/serviceA", AccessType: knox.Read,
-		Type: knox.Service}
+	s1 := NewService("example.com", "serviceA")
+	s2 := NewService("example.com", "serviceB/foo")
+	s3 := NewService("example.com", "serviceC/foo")
+	a1 := knox.Access{ID: "spiffe://example.com/serviceA", AccessType: knox.Read, Type: knox.Service}
+	a2 := knox.Access{ID: "spiffe://example.com/serviceB/", AccessType: knox.Read, Type: knox.ServicePrefix}
+	a3 := knox.Access{ID: "spiffe://example.com/serviceC/*", AccessType: knox.Read, Type: knox.ServiceGlob}
 
-	acl1 := knox.ACL([]knox.Access{a1})
-	if s.CanAccess(acl1, knox.Admin) {
-		t.Error("service can't access user permission matching id")
+	acl1 := knox.ACL([]knox.Access{a1, a2, a3})
+	if s1.CanAccess(acl1, knox.Admin) || s2.CanAccess(acl1, knox.Admin) || s3.CanAccess(acl1, knox.Admin) {
+		t.Error("service should not be able to get admin perms with read ACL entry")
 	}
-	if !s.CanAccess(acl1, knox.Read) {
-		t.Error("service can't access group they are in")
+	if !s1.CanAccess(acl1, knox.Read) || !s2.CanAccess(acl1, knox.Read) || !s3.CanAccess(acl1, knox.Read) {
+		t.Error("service should be able to get read perms, has read ACL entry")
 	}
 }
 
@@ -340,12 +343,6 @@ func TestGetUser(t *testing.T) {
 	}
 	if u.GetID() != "testuser" {
 		t.Error("unexpected principal")
-	}
-	if !u.inGroup("testgroup") {
-		t.Error("User should be in testgroup")
-	}
-	if u.inGroup("nottestgroup") {
-		t.Error("User should not be in nottestgroup")
 	}
 }
 

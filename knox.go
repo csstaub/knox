@@ -11,6 +11,8 @@ import (
 	"regexp"
 	"sort"
 	"strings"
+
+	"github.com/pinterest/knox/glob"
 )
 
 var (
@@ -22,6 +24,7 @@ var (
 	ErrACLInvalidServicePrefixURL      = fmt.Errorf("Service prefix is invalid URL, must conform to 'spiffe://<domain>/<path>/' format.")
 	ErrACLInvalidServicePrefixNoSlash  = fmt.Errorf("Service prefix had no trailing slash, must conform to 'spiffe://<domain>/<path>/' format.")
 	ErrACLInvalidServicePrefixTooShort = fmt.Errorf("Service prefix too short, path of namespace for prefix needs to be longer.")
+	ErrACLInvalidServiceGlob           = fmt.Errorf("Service glob pattern was invalid, check pattern format.")
 
 	ErrInvalidKeyID       = fmt.Errorf("KeyID can only contain alphanumeric characters, colons, and underscores.")
 	ErrInvalidVersionHash = fmt.Errorf("Hash does not match")
@@ -117,6 +120,8 @@ const (
 	Service
 	// ServicePrefix represents a prefix to match multiple SPIFFE IDs.
 	ServicePrefix
+	// ServiceGlob represents a glob pattern to match multiple SPIFFE IDs.
+	ServiceGlob
 )
 
 // UnmarshalJSON parses JSON input to set an PrincipalType.
@@ -134,6 +139,8 @@ func (s *PrincipalType) UnmarshalJSON(b []byte) error {
 		*s = Service
 	case `"ServicePrefix"`:
 		*s = ServicePrefix
+	case `"ServiceGlob"`:
+		*s = ServiceGlob
 	default:
 		// To ensure compatibilty in the event of new PrincipalTypes, don't
 		// throw an error. Instead just create a bogus Type. When displaying
@@ -158,6 +165,8 @@ func (s PrincipalType) MarshalJSON() ([]byte, error) {
 		return json.Marshal("Service")
 	case ServicePrefix:
 		return json.Marshal("ServicePrefix")
+	case ServiceGlob:
+		return json.Marshal("ServiceGlob")
 	case Unknown:
 		// Explicitly prevent unrecognized PrincipalTypes from being marshaled
 		return nil, invalidTypeError{"PrincipalType"}
@@ -181,7 +190,7 @@ func (s PrincipalType) IsValidPrincipal(id string, extraValidators []PrincipalVa
 
 	// Apply additional validation for service and service prefix principals.
 	switch s {
-	case Service, ServicePrefix:
+	case Service, ServicePrefix, ServiceGlob:
 		// For Service principals and prefixes, verify that id looks like a valid SPIFFE ID.
 		parsed, err := url.Parse(id)
 		if err != nil || parsed.Scheme != spiffeScheme || parsed.Host == "" {
@@ -194,6 +203,14 @@ func (s PrincipalType) IsValidPrincipal(id string, extraValidators []PrincipalVa
 		endsWithSlash := strings.HasSuffix(id, "/")
 		if s == ServicePrefix && !endsWithSlash {
 			return ErrACLInvalidServicePrefixNoSlash
+		}
+
+		// For glob patterns, compile pattern and validate the compilation was successful.
+		if s == ServiceGlob {
+			_, err := glob.NewPattern(id)
+			if err != nil {
+				return ErrACLInvalidServiceGlob
+			}
 		}
 	}
 
@@ -302,6 +319,31 @@ type Access struct {
 	Type       PrincipalType `json:"type"`
 	ID         string        `json:"id"`
 	AccessType AccessType    `json:"access"`
+}
+
+// Matches verifies if a given identity applies to a particular Access
+// instance. For example, if the Access entry is for a "Service" it will
+// check if the SPIFFE ID is an exact match to the given string.
+func (a Access) Matches(id string) bool {
+	switch a.Type {
+	case User, UserGroup, Machine, Service:
+		return a.ID == id
+	case MachinePrefix, ServicePrefix:
+		return strings.HasPrefix(id, a.ID)
+	case ServiceGlob:
+		// TODO(cstaub): Consider implementing caching for compiled patterns?
+		// Caching could help improve performance on keys with long lists of
+		// ServiceGlob ACL entries.
+		pattern, err := glob.NewPattern(a.ID)
+		if err != nil {
+			// We validate when adding entries, so this should never happen
+			// unless the internal processing for patterns has changed and
+			// old patterns have become invalid under the new logic.
+			return false
+		}
+		return pattern.MatchString(id)
+	}
+	return false
 }
 
 // Validate ensures the ACL is of valid form. Not specifying the same group

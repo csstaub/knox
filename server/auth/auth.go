@@ -336,24 +336,9 @@ func IsService(p knox.Principal) bool {
 	return ok
 }
 
-type stringSet map[string]struct{}
-
-func (s *stringSet) memberOf(e string) bool {
-	_, ok := map[string]struct{}(*s)[e]
-	return ok
-}
-
-func setFromList(groups []string) *stringSet {
-	var t = stringSet(map[string]struct{}{})
-	for _, g := range groups {
-		t[g] = struct{}{}
-	}
-	return &t
-}
-
 // NewUser creates a user principal with the given auth Provider.
 func NewUser(id string, groups []string) knox.Principal {
-	return user{id, *setFromList(groups)}
+	return user{id, groups}
 }
 
 // NewMachine creates a machine principal with the given auth Provider.
@@ -369,11 +354,7 @@ func NewService(domain string, path string) knox.Principal {
 // User represents an LDAP user and the AuthProvider to allow group information
 type user struct {
 	ID     string
-	groups stringSet
-}
-
-func (u user) inGroup(g string) bool {
-	return u.groups.memberOf(g)
+	groups []string
 }
 
 func (u user) GetID() string {
@@ -391,12 +372,14 @@ func (u user) CanAccess(acl knox.ACL, t knox.AccessType) bool {
 	for _, a := range acl {
 		switch a.Type {
 		case knox.User:
-			if a.ID == u.ID && a.AccessType.CanAccess(t) {
+			if a.Matches(u.ID) && a.AccessType.CanAccess(t) {
 				return true
 			}
 		case knox.UserGroup:
-			if u.inGroup(a.ID) && a.AccessType.CanAccess(t) {
-				return true
+			for _, group := range u.groups {
+				if a.Matches(group) && a.AccessType.CanAccess(t) {
+					return true
+				}
 			}
 		}
 	}
@@ -419,16 +402,8 @@ func (m machine) Type() string {
 // with a certain AccessType. It compares Machine hostname and hostname prefix.
 func (m machine) CanAccess(acl knox.ACL, t knox.AccessType) bool {
 	for _, a := range acl {
-		switch a.Type {
-		case knox.Machine:
-			if a.ID == string(m) && a.AccessType.CanAccess(t) {
-				return true
-			}
-		case knox.MachinePrefix:
-			// TODO(devinlundberg): Investigate security implications of this
-			if strings.HasPrefix(string(m), a.ID) && a.AccessType.CanAccess(t) {
-				return true
-			}
+		if a.Matches(string(m)) && a.AccessType.CanAccess(t) {
+			return true
 		}
 	}
 	return false
@@ -454,15 +429,8 @@ func (s service) Type() string {
 // with a certain AccessType. It compares Service id and id prefix.
 func (s service) CanAccess(acl knox.ACL, t knox.AccessType) bool {
 	for _, a := range acl {
-		switch a.Type {
-		case knox.Service:
-			if a.ID == string(s.GetID()) && a.AccessType.CanAccess(t) {
-				return true
-			}
-		case knox.ServicePrefix:
-			if strings.HasPrefix(s.GetID(), a.ID) && a.AccessType.CanAccess(t) {
-				return true
-			}
+		if a.Matches(s.GetID()) && a.AccessType.CanAccess(t) {
+			return true
 		}
 	}
 	return false

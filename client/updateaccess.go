@@ -31,6 +31,7 @@ Access will add or change the acl on a key by adding a specific access control r
 -P: A machine hostname prefix. Prefix matching will be used to determine access. For example, if the principal is set to 'auth' then 'auth004' would match (and so would any hostname beginning with auth).
 -S: A specific service. The principal should be set to the exact SPIFFE ID. For example, 'spiffe://example.com/service'.
 -N: A service prefix (namespace). The principal should be set to a SPIFFE ID ending with a slash, such as 'spiffe://example.com/namespace/'. This will match all services under that prefix, so for example 'spiffe://example.com/namespace/service' would be allowed.
+-L: A service glob pattern. The principal should be set to a SPIFFE ID with globs, such as 'spiffe://example.com/namespace/*'. This will match all services that match the glob, so for example 'spiffe://example.com/namespace/service' would be allowed.
 
 This command requires admin access to the key.
 
@@ -53,6 +54,7 @@ var updateAccessGroup = cmdUpdateAccess.Flag.Bool("G", false, "")
 var updateAccessPrefix = cmdUpdateAccess.Flag.Bool("P", false, "")
 var updateAccessService = cmdUpdateAccess.Flag.Bool("S", false, "")
 var updateAccessServicePrefix = cmdUpdateAccess.Flag.Bool("N", false, "")
+var updateAccessServiceGlob = cmdUpdateAccess.Flag.Bool("L", false, "")
 
 func runUpdateAccess(cmd *Command, args []string) *ErrorStatus {
 	if *updateAccessACL != "" {
@@ -108,6 +110,8 @@ func runUpdateAccess(cmd *Command, args []string) *ErrorStatus {
 		access.Type = knox.Service
 	case *updateAccessServicePrefix:
 		access.Type = knox.ServicePrefix
+	case *updateAccessServiceGlob:
+		access.Type = knox.ServiceGlob
 	default:
 		return &ErrorStatus{fmt.Errorf("access requires {-M|-U|-G|-P|-S|-N}. See 'knox help access'"), false}
 	}

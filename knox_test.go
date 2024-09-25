@@ -208,7 +208,8 @@ func TestACLValidate(t *testing.T) {
 	a3 := Access{ID: "testmachine", AccessType: Read, Type: MachinePrefix}
 	a6 := Access{ID: "spiffe://example.com/serviceA", AccessType: Read, Type: Service}
 	a7 := Access{ID: "spiffe://example.com/serviceA/", AccessType: Read, Type: ServicePrefix}
-	validACL := ACL([]Access{a1, a2, a3, a6, a7})
+	a8 := Access{ID: "spiffe://example.com/serviceA/**", AccessType: Read, Type: ServiceGlob}
+	validACL := ACL([]Access{a1, a2, a3, a6, a7, a8})
 	if validACL.Validate() != nil {
 		t.Error("ValidACL should be valid")
 	}
@@ -298,7 +299,9 @@ func TestKeyValidate(t *testing.T) {
 	a3 := Access{ID: "testmachine", AccessType: Read, Type: MachinePrefix}
 	a4 := Access{ID: "testmachine", AccessType: None, Type: MachinePrefix}
 	a5 := Access{ID: "spiffe://example.com/serviceA", AccessType: Admin, Type: Service}
-	validACL := ACL([]Access{a1, a2, a3, a5})
+	a6 := Access{ID: "spiffe://example.com/serviceA/", AccessType: Admin, Type: ServicePrefix}
+	a7 := Access{ID: "spiffe://example.com/serviceA/*/**", AccessType: Admin, Type: ServiceGlob}
+	validACL := ACL([]Access{a1, a2, a3, a5, a6, a7})
 	invalidACL := ACL([]Access{a1, a2, a4})
 
 	validKeyID := "test_key"
@@ -427,10 +430,10 @@ func TestPrincipalValidation(t *testing.T) {
 
 		err := principalType.IsValidPrincipal(id, extraValidators)
 		if err == nil && !expected {
-			t.Errorf("Should not be valid, but is: '%s'", id)
+			t.Errorf("Should not be valid, but is: '%s' (type %v)", id, principalType)
 		}
 		if err != nil && expected {
-			t.Errorf("Should be valid, but isn't: '%s' (error: %s)", id, err.Error())
+			t.Errorf("Should be valid, but isn't: '%s' (error: %s, type %v)", id, err.Error(), principalType)
 		}
 	}
 
@@ -442,18 +445,24 @@ func TestPrincipalValidation(t *testing.T) {
 	validatePrincipal(MachinePrefix, "", false)
 	validatePrincipal(Service, "", false)
 	validatePrincipal(ServicePrefix, "", false)
+	validatePrincipal(ServiceGlob, "", false)
 
 	// Not valid URLs
 	validatePrincipal(Service, "not-a-url", false)
 	validatePrincipal(ServicePrefix, "not-a-url", false)
+	validatePrincipal(ServiceGlob, "not-a-url", false)
 
 	// Wrong URL scheme
 	validatePrincipal(Service, "https://example.com", false)
 	validatePrincipal(ServicePrefix, "https://example.com", false)
+	validatePrincipal(ServiceGlob, "https://example.com", false)
 
 	// Not enough components
 	validatePrincipal(ServicePrefix, "spiffe://example.com", false)
 	validatePrincipal(ServicePrefix, "spiffe://example.com/", false)
+
+	// Bad glob pattern
+	validatePrincipal(ServiceGlob, "spiffe://example.com/***/*", false)
 
 	// No trailing slash
 	validatePrincipal(ServicePrefix, "spiffe://example.com/foo", false)
@@ -465,4 +474,7 @@ func TestPrincipalValidation(t *testing.T) {
 	validatePrincipal(MachinePrefix, "test", true)
 	validatePrincipal(Service, "spiffe://example.com/service", true)
 	validatePrincipal(ServicePrefix, "spiffe://example.com/prefix/", true)
+	validatePrincipal(ServiceGlob, "spiffe://example.com/prefix/*", true)
+	validatePrincipal(ServiceGlob, "spiffe://example.com/prefix/**", true)
+	validatePrincipal(ServiceGlob, "spiffe://*.example.com/prefix/**", true)
 }
